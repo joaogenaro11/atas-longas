@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Transcrição de Áudio (local)</title>
+<style>
+  :root { --bg:#0f1117; --card:#1a1d27; --line:#2a2f3d; --fg:#e6e8ef;
+          --mut:#9aa1b1; --acc:#6c8cff; --ok:#3ecf8e; --err:#ff6b6b; --warn:#ffb454; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg);
+         font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; }
+  .wrap { max-width: 880px; margin: 0 auto; padding: 28px 20px 80px; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  .sub { color: var(--mut); margin: 0 0 20px; font-size: 13px; }
+  .card { background:var(--card); border:1px solid var(--line);
+          border-radius:12px; padding:18px; margin-bottom:16px; }
+  .hw { font-size:13px; color:var(--mut); display:flex; flex-wrap:wrap; gap:14px; }
+  .hw b { color:var(--fg); font-weight:600; }
+  #drop { border:2px dashed var(--line); border-radius:12px; padding:34px;
+          text-align:center; color:var(--mut); cursor:pointer; transition:.15s; }
+  #drop.hover { border-color:var(--acc); color:var(--fg); background:#181c28; }
+  .row { display:flex; gap:14px; align-items:center; flex-wrap:wrap; margin-top:14px; }
+  label { font-size:13px; color:var(--mut); }
+  select, input[type=number] { background:#12141c; color:var(--fg);
+          border:1px solid var(--line); border-radius:8px; padding:7px 9px; font-size:14px; }
+  button { background:var(--acc); color:#fff; border:0; border-radius:8px;
+           padding:9px 16px; font-size:14px; font-weight:600; cursor:pointer; }
+  button:disabled { opacity:.5; cursor:default; }
+  button.ghost { background:transparent; border:1px solid var(--line); color:var(--fg); }
+  table { width:100%; border-collapse:collapse; font-size:14px; }
+  th, td { text-align:left; padding:9px 8px; border-bottom:1px solid var(--line); vertical-align:middle; }
+  th { color:var(--mut); font-weight:600; font-size:12px; text-transform:uppercase; letter-spacing:.4px; }
+  .name { max-width:260px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .badge { font-size:12px; padding:3px 9px; border-radius:20px; display:inline-block; }
+  .aguardando { background:#2a2f3d; color:var(--mut); }
+  .processando { background:#243; color:var(--warn); }
+  .concluído { background:#123a2a; color:var(--ok); }
+  .erro { background:#3a1a1a; color:var(--err); }
+  .bar { height:6px; background:#12141c; border-radius:4px; overflow:hidden; margin-top:6px; }
+  .bar > i { display:block; height:100%; background:var(--acc); width:0; transition:width .3s; }
+  .msg { color:var(--mut); font-size:12px; }
+  a.dl { color:var(--acc); text-decoration:none; }
+  .empty { color:var(--mut); text-align:center; padding:22px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>🎙️ Transcrição de Áudio — local</h1>
+  <p class="sub">Sem APIs pagas. Nenhum áudio sai da máquina. Upload → transcrição → TXT.</p>
+
+  <div class="card">
+    <div class="hw" id="hw">carregando hardware…</div>
+  </div>
+
+  <div class="card">
+    <div id="drop">
+      <div style="font-size:15px;">Arraste os áudios aqui ou <b>clique para selecionar</b></div>
+      <div style="font-size:12px;margin-top:6px;">MP3, M4A, WAV, MP4, AAC, FLAC · múltiplos arquivos</div>
+      <input type="file" id="file" multiple hidden
+             accept=".mp3,.m4a,.wav,.mp4,.aac,.flac,.ogg,.opus,.webm,.mov">
+    </div>
+    <div id="picked" class="msg" style="margin-top:10px;"></div>
+    <div class="row">
+      <label>Modelo
+        <select id="quality">
+          <option value="rapido">Rápido</option>
+          <option value="equilibrado" selected>Equilibrado</option>
+          <option value="maxima">Máxima qualidade</option>
+        </select>
+      </label>
+      <label>Segmentos em paralelo
+        <input type="number" id="workers" value="1" min="1" max="8" style="width:62px;">
+      </label>
+      <button id="send" disabled>Transcrever</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <table>
+      <thead><tr><th>Arquivo</th><th>Status</th><th>Progresso</th><th>Info</th><th></th></tr></thead>
+      <tbody id="jobs"><tr><td colspan="5" class="empty">Nenhum arquivo na fila ainda.</td></tr></tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+const $ = s => document.querySelector(s);
+let files = [];
+
+fetch('/api/hardware').then(r=>r.json()).then(hw=>{
+  const chip = hw.is_apple_silicon ? 'Apple Silicon' : hw.machine;
+  $('#hw').innerHTML =
+    `<span><b>Hardware:</b> ${hw.system} · ${chip} · ${hw.ram_gb} GB</span>`+
+    `<span><b>Backend:</b> ${hw.backend}</span>`+
+    `<span><b>Saída:</b> ${hw.out_dir}</span>`;
+});
+
+const drop = $('#drop'), fileInput = $('#file');
+drop.onclick = () => fileInput.click();
+['dragover','dragenter'].forEach(e=>drop.addEventListener(e,ev=>{ev.preventDefault();drop.classList.add('hover');}));
+['dragleave','drop'].forEach(e=>drop.addEventListener(e,ev=>{ev.preventDefault();drop.classList.remove('hover');}));
+drop.addEventListener('drop', ev => setFiles(ev.dataTransfer.files));
+fileInput.addEventListener('change', () => setFiles(fileInput.files));
+
+function setFiles(list){
+  files = Array.from(list);
+  $('#picked').textContent = files.length ? files.map(f=>f.name).join(', ') : '';
+  $('#send').disabled = files.length === 0;
+}
+
+$('#send').onclick = async () => {
+  if(!files.length) return;
+  const fd = new FormData();
+  files.forEach(f => fd.append('files', f));
+  fd.append('quality', $('#quality').value);
+  fd.append('workers', $('#workers').value);
+  $('#send').disabled = true; $('#send').textContent = 'Enviando…';
+  try {
+    const r = await fetch('/api/upload', {method:'POST', body:fd});
+    if(!r.ok){ alert((await r.json()).error || 'erro no upload'); }
+    files = []; $('#picked').textContent=''; fileInput.value='';
+  } catch(e){ alert('Falha no upload: '+e); }
+  $('#send').textContent = 'Transcrever';
+  refresh();
+};
+
+function esc(s){ return (s||'').replace(/[&<>]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
+
+async function refresh(){
+  let jobs = [];
+  try { jobs = await (await fetch('/api/jobs')).json(); } catch(e){ return; }
+  const tb = $('#jobs');
+  if(!jobs.length){ tb.innerHTML = '<tr><td colspan="5" class="empty">Nenhum arquivo na fila ainda.</td></tr>'; return; }
+  tb.innerHTML = jobs.map(j => {
+    const pct = Math.round((j.progress||0)*100);
+    const dl = j.status==='concluído'
+      ? `<a class="dl" href="/api/jobs/${j.id}/download">baixar TXT</a>` : '';
+    const retry = j.status==='erro'
+      ? `<button class="ghost" onclick="retry(${j.id})">repetir</button>` : '';
+    const info = j.status==='concluído'
+      ? `${j.duration_hms} · ${esc(j.language)} · ${esc(j.message)}`
+      : `<span class="msg">${esc(j.message)}</span>`;
+    return `<tr>
+      <td class="name" title="${esc(j.filename)}">${esc(j.filename)}</td>
+      <td><span class="badge ${j.status}">${j.status}</span></td>
+      <td style="min-width:120px;">${pct}%<div class="bar"><i style="width:${pct}%"></i></div></td>
+      <td>${info}</td>
+      <td>${dl}${retry}</td>
+    </tr>`;
+  }).join('');
+}
+async function retry(id){ await fetch(`/api/jobs/${id}/retry`, {method:'POST'}); refresh(); }
+
+refresh();
+setInterval(refresh, 2000);
+</script>
+</body>
+</html>

@@ -1,0 +1,33 @@
+# Ambiente Python
+.venv/
+venv/
+__pycache__/
+*.pyc
+
+# Saídas e caches de transcrição (ficam locais, não versionar)
+transcricoes/
+data/
+*.txt
+!requirements.txt
+
+# uv
+uv.lock
+
+# Áudios de teste
+*.mp3
+*.m4a
+*.wav
+*.mp4
+*.aac
+*.flac
+*.ogg
+*.opus
+*.webm
+*.mov
+
+# Modelos baixados
+models/
+
+# Sistema
+.DS_Store
+.gradio/

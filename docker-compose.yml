@@ -1,0 +1,16 @@
+services:
+  transcricao:
+    build: .
+    container_name: transcricao-local
+    ports:
+      - "7860:7860"
+    volumes:
+      # transcrições e uploads ficam no seu disco (persistem entre execuções)
+      - ./transcricoes:/app/transcricoes
+      - ./data:/app/data
+      # cache dos modelos Whisper (evita rebaixar a cada execução)
+      - whisper-cache:/root/.cache/huggingface
+    restart: unless-stopped
+
+volumes:
+  whisper-cache:
