@@ -190,12 +190,13 @@ class BaseBackend:
         self.model_id = model_id
 
     def transcribe(self, wav_path: str, language: str | None,
-                   initial_prompt: str | None) -> tuple[list[Segment], str]:
+                   initial_prompt: str | None,
+                   should_cancel=None) -> tuple[list[Segment], str]:
         raise NotImplementedError
 
 
 class MlxBackend(BaseBackend):
-    def transcribe(self, wav_path, language, initial_prompt):
+    def transcribe(self, wav_path, language, initial_prompt, should_cancel=None):
         import mlx_whisper
         result = mlx_whisper.transcribe(
             wav_path,
@@ -231,7 +232,7 @@ class FasterWhisperBackend(BaseBackend):
             )
         return self._model_cache[key]
 
-    def transcribe(self, wav_path, language, initial_prompt):
+    def transcribe(self, wav_path, language, initial_prompt, should_cancel=None):
         model = self._get_model()
         segments, info = model.transcribe(
             wav_path,
@@ -242,7 +243,13 @@ class FasterWhisperBackend(BaseBackend):
             vad_parameters={"min_silence_duration_ms": 500},
             beam_size=5,
         )
-        segs = [Segment(s.start, s.end, s.text) for s in segments]
+        # 'segments' é um gerador: consome sob demanda e permite cancelar
+        # no meio do trecho (a cada poucos segundos de áudio), não só no fim.
+        segs = []
+        for s in segments:
+            if should_cancel and should_cancel():
+                raise CancelledError()
+            segs.append(Segment(s.start, s.end, s.text))
         return segs, info.language
 
 
@@ -420,7 +427,8 @@ def transcribe_file(
         wav = os.path.join(cache, f"chunk_{i:04d}.wav")
         extract_chunk_wav(src_path, wav, start, length)
         segs, detected = backend.transcribe(wav, language=language,
-                                            initial_prompt=prompt)
+                                            initial_prompt=prompt,
+                                            should_cancel=should_cancel)
         for s in segs:              # tempo absoluto
             s.start += start
             s.end += start
