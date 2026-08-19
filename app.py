@@ -21,8 +21,15 @@ import unicodedata
 
 from flask import Flask, jsonify, request, send_file, abort, Response
 
+import shutil
+
 import db
-from transcribe import detect_hardware, choose_model, transcribe_file, fmt_hms
+from transcribe import (detect_hardware, choose_model, transcribe_file, fmt_hms,
+                        CancelledError)
+
+# Jobs cujo cancelamento foi solicitado (checado entre os segmentos).
+_cancel_requested: set[int] = set()
+_cancel_lock = threading.Lock()
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 UPLOAD_DIR = os.environ.get("UPLOAD_DIR", os.path.join(BASE_DIR, "data", "uploads"))
@@ -84,11 +91,16 @@ def _process_job(job: dict) -> None:
     def cb(frac, msg):
         db.update_job(job_id, progress=float(frac), message=str(msg)[:300])
 
+    def cancelled():
+        with _cancel_lock:
+            return job_id in _cancel_requested
+
     try:
         res = transcribe_file(
             job["stored_path"], OUT_DIR,
             quality=job["quality"], hw=HW, progress=cb,
             workers=int(job["workers"] or 1),
+            should_cancel=cancelled,
         )
         db.update_job(
             job_id, status="concluído", progress=1.0,
@@ -96,9 +108,14 @@ def _process_job(job: dict) -> None:
             txt_path=res["txt_path"], language=res["language"],
             duration=res["duration"], model=res["model"],
         )
+    except CancelledError:
+        db.update_job(job_id, status="cancelado", message="cancelado pelo usuário")
     except Exception as e:
         traceback.print_exc()
         db.update_job(job_id, status="erro", message=str(e)[:300])
+    finally:
+        with _cancel_lock:
+            _cancel_requested.discard(job_id)
 
 
 def _worker_loop() -> None:
@@ -202,6 +219,55 @@ def api_retry(job_id):
         abort(404)
     # graças ao cache de segmentos, o retry só refaz o que faltou.
     db.update_job(job_id, status="aguardando", message="reenfileirado", progress=0)
+    return jsonify({"ok": True})
+
+
+def _cancel_job(job: dict) -> None:
+    """Cancela um job: se estiver rodando, sinaliza; se aguardando, marca já."""
+    if job["status"] == "processando":
+        with _cancel_lock:
+            _cancel_requested.add(job["id"])
+        db.update_job(job["id"], message="cancelando…")
+    elif job["status"] == "aguardando":
+        db.update_job(job["id"], status="cancelado", message="cancelado pelo usuário")
+
+
+@app.post("/api/jobs/<int:job_id>/cancel")
+def api_cancel(job_id):
+    job = db.get_job(job_id)
+    if not job:
+        abort(404)
+    _cancel_job(job)
+    return jsonify({"ok": True})
+
+
+@app.post("/api/cancel-all")
+def api_cancel_all():
+    for job in db.list_jobs():
+        if job["status"] in ("aguardando", "processando"):
+            _cancel_job(job)
+    return jsonify({"ok": True})
+
+
+@app.post("/api/jobs/<int:job_id>/delete")
+def api_delete(job_id):
+    job = db.get_job(job_id)
+    if not job:
+        abort(404)
+    # cancela primeiro se estiver rodando (para o worker soltar o arquivo)
+    if job["status"] in ("aguardando", "processando"):
+        _cancel_job(job)
+    # remove áudio enviado, TXT e cache de segmentos
+    for path in (job.get("stored_path"), job.get("txt_path")):
+        try:
+            if path and os.path.exists(path):
+                os.remove(path)
+        except OSError:
+            pass
+    safe = re.sub(r"[^\w.\-]", "_", job["filename"])
+    cache = os.path.join(OUT_DIR, ".cache", safe)
+    shutil.rmtree(cache, ignore_errors=True)
+    db.delete_job(job_id)
     return jsonify({"ok": True})
 
 

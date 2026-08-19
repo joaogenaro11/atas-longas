@@ -174,6 +174,10 @@ def extract_chunk_wav(src: str, dst: str, start: float, duration: float) -> None
 # Backends de transcrição (interface unificada)
 # ---------------------------------------------------------------------------
 
+class CancelledError(Exception):
+    """Levantada quando um job é cancelado pelo usuário."""
+
+
 @dataclass
 class Segment:
     start: float
@@ -368,6 +372,7 @@ def transcribe_file(
     progress=None,          # callable(frac: float, msg: str)
     keep_cache: bool = False,
     workers: int = 1,       # >1: transcreve segmentos em paralelo (só faster-whisper)
+    should_cancel=None,     # callable() -> bool; se True, aborta com CancelledError
 ) -> dict:
     """
     Transcreve um arquivo inteiro e grava o TXT em out_dir.
@@ -398,6 +403,10 @@ def transcribe_file(
     def emit(frac, msg):
         if progress:
             progress(frac, msg)
+
+    def check_cancel():
+        if should_cancel and should_cancel():
+            raise CancelledError()
 
     meta = {"filename": filename, "duration": duration, "language": "pt",
             "model": model_id, "backend": hw["backend"]}
@@ -431,6 +440,7 @@ def transcribe_file(
         language: str | None = None
         tail_context = ""
         for i, (start, length) in enumerate(plan):
+            check_cancel()
             emit(i / len(plan) + 0.01, f"Transcrevendo segmento {i+1}/{len(plan)}…")
             segs, language = transcribe_one(i, start, length, language,
                                             tail_context or None)
@@ -455,6 +465,7 @@ def transcribe_file(
         lock = threading.Lock()
 
         def work(i):
+            check_cancel()
             start, length = plan[i]
             segs, _ = transcribe_one(i, start, length, language, None)
             return i, segs

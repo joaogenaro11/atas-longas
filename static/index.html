@@ -37,6 +37,7 @@
   .processando { background:#243; color:var(--warn); }
   .concluído { background:#123a2a; color:var(--ok); }
   .erro { background:#3a1a1a; color:var(--err); }
+  .cancelado { background:#2a2f3d; color:var(--mut); }
   .bar { height:6px; background:#12141c; border-radius:4px; overflow:hidden; margin-top:6px; }
   .bar > i { display:block; height:100%; background:var(--acc); width:0; transition:width .3s; }
   .msg { color:var(--mut); font-size:12px; }
@@ -77,6 +78,10 @@
   </div>
 
   <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+      <b style="font-size:14px;">Fila</b>
+      <button class="ghost" id="cancelAll" style="font-size:13px;padding:6px 12px;">Cancelar tudo</button>
+    </div>
     <table>
       <thead><tr><th>Arquivo</th><th>Status</th><th>Progresso</th><th>Info</th><th></th></tr></thead>
       <tbody id="jobs"><tr><td colspan="5" class="empty">Nenhum arquivo na fila ainda.</td></tr></tbody>
@@ -134,10 +139,15 @@ async function refresh(){
   if(!jobs.length){ tb.innerHTML = '<tr><td colspan="5" class="empty">Nenhum arquivo na fila ainda.</td></tr>'; return; }
   tb.innerHTML = jobs.map(j => {
     const pct = Math.round((j.progress||0)*100);
+    const running = (j.status==='aguardando' || j.status==='processando');
     const dl = j.status==='concluído'
       ? `<a class="dl" href="/api/jobs/${j.id}/download">baixar TXT</a>` : '';
     const retry = j.status==='erro'
       ? `<button class="ghost" onclick="retry(${j.id})">repetir</button>` : '';
+    const cancel = running
+      ? `<button class="ghost" onclick="cancelJob(${j.id})">cancelar</button>` : '';
+    const del = !running
+      ? `<button class="ghost" onclick="delJob(${j.id})">remover</button>` : '';
     const info = j.status==='concluído'
       ? `${j.duration_hms} · ${esc(j.language)} · ${esc(j.message)}`
       : `<span class="msg">${esc(j.message)}</span>`;
@@ -146,11 +156,20 @@ async function refresh(){
       <td><span class="badge ${j.status}">${j.status}</span></td>
       <td style="min-width:120px;">${pct}%<div class="bar"><i style="width:${pct}%"></i></div></td>
       <td>${info}</td>
-      <td>${dl}${retry}</td>
+      <td style="white-space:nowrap;">${dl}${retry}${cancel}${del}</td>
     </tr>`;
   }).join('');
 }
 async function retry(id){ await fetch(`/api/jobs/${id}/retry`, {method:'POST'}); refresh(); }
+async function cancelJob(id){ await fetch(`/api/jobs/${id}/cancel`, {method:'POST'}); refresh(); }
+async function delJob(id){
+  if(!confirm('Remover este arquivo da fila?')) return;
+  await fetch(`/api/jobs/${id}/delete`, {method:'POST'}); refresh();
+}
+document.getElementById('cancelAll').onclick = async () => {
+  if(!confirm('Cancelar todos os que estão na fila/processando?')) return;
+  await fetch('/api/cancel-all', {method:'POST'}); refresh();
+};
 
 refresh();
 setInterval(refresh, 2000);

@@ -73,6 +73,11 @@ def get_job(job_id: int) -> dict | None:
         return dict(row) if row else None
 
 
+def delete_job(job_id: int) -> None:
+    with _LOCK, _conn() as c:
+        c.execute("DELETE FROM jobs WHERE id=?", (job_id,))
+
+
 def list_jobs() -> list[dict]:
     with _conn() as c:
         rows = c.execute("SELECT * FROM jobs ORDER BY id DESC").fetchall()
