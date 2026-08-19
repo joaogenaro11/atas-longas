@@ -221,7 +221,10 @@ class FasterWhisperBackend(BaseBackend):
     def _get_model(self):
         key = (self.model_id, self.num_workers)
         if key not in self._model_cache:
+            print(f"[modelo] importando faster-whisper…", flush=True)
             from faster_whisper import WhisperModel
+            print(f"[modelo] baixando/carregando '{self.model_id}' "
+                  f"(baixa só na 1ª vez)…", flush=True)
             # int8 é leve e rápido na CPU; auto usa GPU se houver.
             # num_workers replica o modelo (pesos compartilhados) para atender
             # vários segmentos em paralelo sem multiplicar a memória.
@@ -230,6 +233,7 @@ class FasterWhisperBackend(BaseBackend):
                 cpu_threads=os.cpu_count() or 4,
                 num_workers=self.num_workers,
             )
+            print("[modelo] pronto.", flush=True)
         return self._model_cache[key]
 
     def transcribe(self, wav_path, language, initial_prompt, should_cancel=None):
@@ -425,10 +429,13 @@ def transcribe_file(
             segs, lang = _load_chunk(chunk_json)
             return segs, lang or language
         wav = os.path.join(cache, f"chunk_{i:04d}.wav")
+        print(f"[seg {i+1}] extraindo áudio…", flush=True)
         extract_chunk_wav(src_path, wav, start, length)
+        print(f"[seg {i+1}] transcrevendo…", flush=True)
         segs, detected = backend.transcribe(wav, language=language,
                                             initial_prompt=prompt,
                                             should_cancel=should_cancel)
+        print(f"[seg {i+1}] ok ({len(segs)} trechos)", flush=True)
         for s in segs:              # tempo absoluto
             s.start += start
             s.end += start

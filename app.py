@@ -95,6 +95,7 @@ def _process_job(job: dict) -> None:
 
     env = os.environ.copy()
     env["DB_PATH"] = db.DB_PATH  # garante o mesmo banco no filho
+    env["PYTHONUNBUFFERED"] = "1"  # prints do worker aparecem na hora
     args = [sys.executable, _WORKER_SCRIPT, str(job_id), job["stored_path"],
             OUT_DIR, job["quality"], str(int(job["workers"] or 1)), json.dumps(HW)]
     p = subprocess.Popen(args, env=env)
