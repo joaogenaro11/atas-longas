@@ -38,6 +38,12 @@ else
   uv sync
 fi
 
+# --- Remove o PyTorch (não é usado e deixa o carregamento MUITO lento) -------
+# O ctranslate2 (faster-whisper) importa o torch se ele existir, o que trava o
+# início em máquinas modestas. Nenhum backend aqui precisa dele.
+echo "==> Removendo PyTorch (desnecessário e lento)…"
+uv pip uninstall torch torchaudio torchvision >/dev/null 2>&1 || true
+
 echo ""
 echo "✅ Instalação concluída."
 echo "   Para iniciar:  ./start.sh        (nativo, recomendado no Mac)"
