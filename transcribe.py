@@ -225,18 +225,26 @@ class FasterWhisperBackend(BaseBackend):
     def _get_model(self):
         key = (self.model_id, self.num_workers)
         if key not in self._model_cache:
-            print(f"[modelo] importando faster-whisper…", flush=True)
+            print("[modelo] importando faster-whisper…", flush=True)
             from faster_whisper import WhisperModel
-            print(f"[modelo] baixando/carregando '{self.model_id}' "
-                  f"(baixa só na 1ª vez)…", flush=True)
             # int8 é leve e rápido na CPU; auto usa GPU se houver.
             # num_workers replica o modelo (pesos compartilhados) para atender
             # vários segmentos em paralelo sem multiplicar a memória.
-            self._model_cache[key] = WhisperModel(
-                self.model_id, device="auto", compute_type="int8",
-                cpu_threads=os.cpu_count() or 4,
-                num_workers=self.num_workers,
-            )
+            common = dict(device="auto", compute_type="int8",
+                          cpu_threads=os.cpu_count() or 4,
+                          num_workers=self.num_workers)
+            try:
+                # 1º tenta carregar SÓ do cache local (sem tocar na rede).
+                # Isto evita a trava numa checagem de atualização no Hugging Face
+                # quando o modelo já foi baixado antes.
+                print("[modelo] carregando do cache local (sem rede)…", flush=True)
+                model = WhisperModel(self.model_id, local_files_only=True, **common)
+            except Exception:
+                # Não está no cache: baixa de fato (só na 1ª vez).
+                print("[modelo] não está no cache — baixando do Hugging Face "
+                      "(só na 1ª vez)…", flush=True)
+                model = WhisperModel(self.model_id, local_files_only=False, **common)
+            self._model_cache[key] = model
             print("[modelo] pronto.", flush=True)
         return self._model_cache[key]
 
