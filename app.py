@@ -21,11 +21,12 @@ import unicodedata
 
 from flask import Flask, jsonify, request, send_file, abort, Response
 
-import multiprocessing as mp
+import json
 import shutil
+import subprocess
+import sys
 
 import db
-import worker_proc
 from transcribe import detect_hardware, choose_model, fmt_hms
 
 # Jobs cujo cancelamento foi solicitado.
@@ -85,43 +86,42 @@ _worker_started = False
 _worker_lock = threading.Lock()
 
 
-_MP = mp.get_context("spawn")  # spawn: filho não herda threads/locks do Flask
+_WORKER_SCRIPT = os.path.join(BASE_DIR, "worker_proc.py")
 
 
 def _process_job(job: dict) -> None:
     job_id = job["id"]
     db.update_job(job_id, status="processando", progress=0.01, message="iniciando…")
 
-    p = _MP.Process(
-        target=worker_proc.run_child,
-        args=(job_id, job["stored_path"], OUT_DIR,
-              job["quality"], int(job["workers"] or 1), HW),
-        daemon=True,
-    )
-    p.start()
+    env = os.environ.copy()
+    env["DB_PATH"] = db.DB_PATH  # garante o mesmo banco no filho
+    args = [sys.executable, _WORKER_SCRIPT, str(job_id), job["stored_path"],
+            OUT_DIR, job["quality"], str(int(job["workers"] or 1)), json.dumps(HW)]
+    p = subprocess.Popen(args, env=env)
 
     # Monitora: se pedirem cancelamento, MATA o processo na hora.
-    while p.is_alive():
+    while p.poll() is None:
         with _cancel_lock:
             wants_cancel = job_id in _cancel_requested
         if wants_cancel:
             p.terminate()
-            p.join(3)
-            if p.is_alive():
+            try:
+                p.wait(3)
+            except subprocess.TimeoutExpired:
                 p.kill()
-                p.join()
+                p.wait()
             db.update_job(job_id, status="cancelado", message="cancelado pelo usuário")
             break
-        p.join(timeout=0.2)
+        time.sleep(0.2)
 
     with _cancel_lock:
         _cancel_requested.discard(job_id)
 
-    # Se o filho morreu sem escrever status final (ex: OOM/kill), marca erro.
+    # Se o filho morreu sem escrever status final (ex: falta de memória), marca erro.
     cur = db.get_job(job_id)
     if cur and cur["status"] == "processando":
         db.update_job(job_id, status="erro",
-                      message="o processo encerrou inesperadamente")
+                      message="o processo encerrou inesperadamente (veja o Terminal)")
 
 
 def _worker_loop() -> None:
@@ -277,11 +277,11 @@ def api_delete(job_id):
     return jsonify({"ok": True})
 
 
+db.init_db()
+start_worker()
+
+
 if __name__ == "__main__":
-    # Só o processo principal inicia o banco e o worker. Isto NÃO pode rodar
-    # nos subprocessos de transcrição (spawn re-importa este módulo).
-    db.init_db()
-    start_worker()
     print("Backend:", HW)
     print(f"Servindo em http://localhost:{PORT}")
     # use_reloader=False: evita iniciar dois workers e reprocessar a fila.
