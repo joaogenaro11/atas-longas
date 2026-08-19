@@ -51,7 +51,15 @@ def detect_hardware() -> dict:
     is_apple_silicon = is_mac and machine in ("arm64", "aarch64")
     ram_gb = _total_ram_gb()
 
-    if is_apple_silicon and _mlx_available():
+    # Backend padrão: faster-whisper (estável em qualquer máquina).
+    # O MLX (Apple Silicon) é OPCIONAL e só é usado se você pedir com USE_MLX=1
+    # — assim o app nunca fica preso caso o mlx_whisper trave ao importar.
+    force = os.environ.get("FORCE_BACKEND", "").strip().lower()
+    use_mlx = os.environ.get("USE_MLX", "").strip().lower() in ("1", "true", "yes")
+
+    if force in ("mlx", "faster-whisper"):
+        backend = force
+    elif use_mlx and is_apple_silicon and _mlx_available():
         backend = "mlx"
     else:
         backend = "faster-whisper"
