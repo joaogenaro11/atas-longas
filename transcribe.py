@@ -195,12 +195,13 @@ class BaseBackend:
 
     def transcribe(self, wav_path: str, language: str | None,
                    initial_prompt: str | None,
-                   should_cancel=None) -> tuple[list[Segment], str]:
+                   should_cancel=None, on_segment=None) -> tuple[list[Segment], str]:
         raise NotImplementedError
 
 
 class MlxBackend(BaseBackend):
-    def transcribe(self, wav_path, language, initial_prompt, should_cancel=None):
+    def transcribe(self, wav_path, language, initial_prompt,
+                   should_cancel=None, on_segment=None):
         import mlx_whisper
         result = mlx_whisper.transcribe(
             wav_path,
@@ -211,7 +212,12 @@ class MlxBackend(BaseBackend):
             word_timestamps=False,
             fp16=True,
         )
-        segs = [Segment(s["start"], s["end"], s["text"]) for s in result.get("segments", [])]
+        segs = []
+        for s in result.get("segments", []):
+            seg = Segment(s["start"], s["end"], s["text"])
+            segs.append(seg)
+            if on_segment:
+                on_segment(seg)
         return segs, result.get("language", language or "pt")
 
 
@@ -248,7 +254,8 @@ class FasterWhisperBackend(BaseBackend):
             print("[modelo] pronto.", flush=True)
         return self._model_cache[key]
 
-    def transcribe(self, wav_path, language, initial_prompt, should_cancel=None):
+    def transcribe(self, wav_path, language, initial_prompt,
+                   should_cancel=None, on_segment=None):
         model = self._get_model()
         segments, info = model.transcribe(
             wav_path,
@@ -259,13 +266,16 @@ class FasterWhisperBackend(BaseBackend):
             vad_parameters={"min_silence_duration_ms": 500},
             beam_size=5,
         )
-        # 'segments' é um gerador: consome sob demanda e permite cancelar
-        # no meio do trecho (a cada poucos segundos de áudio), não só no fim.
+        # 'segments' é um gerador: consome sob demanda. Assim dá para atualizar
+        # o progresso a cada trecho (poucos segundos) e cancelar no meio.
         segs = []
         for s in segments:
             if should_cancel and should_cancel():
                 raise CancelledError()
-            segs.append(Segment(s.start, s.end, s.text))
+            seg = Segment(s.start, s.end, s.text)
+            segs.append(seg)
+            if on_segment:
+                on_segment(seg)
         return segs, info.language
 
 
@@ -423,7 +433,11 @@ def transcribe_file(
     eff_workers = max(1, min(eff_workers, len(plan)))
     backend = make_backend(hw, model_id, num_workers=eff_workers)
 
+    prog_max = [0.0]  # progresso nunca anda para trás
+
     def emit(frac, msg):
+        frac = max(float(frac), prog_max[0])
+        prog_max[0] = frac
         if progress:
             progress(frac, msg)
 
@@ -444,9 +458,19 @@ def transcribe_file(
         print(f"[seg {i+1}] extraindo áudio…", flush=True)
         extract_chunk_wav(src_path, wav, start, length)
         print(f"[seg {i+1}] transcrevendo…", flush=True)
+
+        # Progresso fino: a cada trecho, reporta a posição do áudio já processada.
+        total = duration if duration > 0 else (start + length)
+
+        def on_seg(seg):
+            abs_end = start + seg.end
+            frac = min(0.99, abs_end / total) if total else 0.5
+            emit(frac, f"transcrevendo… {fmt_hms(abs_end)} / {fmt_hms(total)}")
+
         segs, detected = backend.transcribe(wav, language=language,
                                             initial_prompt=prompt,
-                                            should_cancel=should_cancel)
+                                            should_cancel=should_cancel,
+                                            on_segment=on_seg)
         print(f"[seg {i+1}] ok ({len(segs)} trechos)", flush=True)
         for s in segs:              # tempo absoluto
             s.start += start
