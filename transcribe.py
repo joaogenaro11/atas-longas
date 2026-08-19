@@ -88,17 +88,21 @@ def _mlx_available() -> bool:
 # "large-v3-turbo" é o ponto de equilíbrio: qualidade próxima do large-v3 e
 # muito mais rápido. Em máquinas com pouca RAM caímos para um modelo menor.
 
+# No faster-whisper usamos SEMPRE o large-v3-turbo: é o melhor equilíbrio
+# (qualidade próxima do large-v3, bem mais rápido), roda bem em 8 GB e evita
+# baixar modelos diferentes quando o usuário troca de preset (o que causava
+# travas em '1%' aguardando um download novo). No MLX mantemos os tiers.
 QUALITY_PRESETS = {
-    "rapido":      {"mlx": "mlx-community/whisper-medium-mlx",           "faster": "medium"},
-    "equilibrado": {"mlx": "mlx-community/whisper-large-v3-turbo",       "faster": "large-v3-turbo"},
-    "maxima":      {"mlx": "mlx-community/whisper-large-v3-mlx",         "faster": "large-v3"},
+    "rapido":      {"mlx": "mlx-community/whisper-medium-mlx",     "faster": "large-v3-turbo"},
+    "equilibrado": {"mlx": "mlx-community/whisper-large-v3-turbo", "faster": "large-v3-turbo"},
+    "maxima":      {"mlx": "mlx-community/whisper-large-v3-mlx",   "faster": "large-v3-turbo"},
 }
 
-# Fallback automático quando a RAM é baixa (evita travar máquinas modestas).
+# Em RAM baixa, o MLX cai para modelos menores; o faster-whisper mantém o turbo.
 LOW_RAM_PRESETS = {
-    "rapido":      {"mlx": "mlx-community/whisper-small-mlx",            "faster": "small"},
-    "equilibrado": {"mlx": "mlx-community/whisper-medium-mlx",          "faster": "medium"},
-    "maxima":      {"mlx": "mlx-community/whisper-large-v3-turbo",      "faster": "large-v3-turbo"},
+    "rapido":      {"mlx": "mlx-community/whisper-small-mlx",       "faster": "large-v3-turbo"},
+    "equilibrado": {"mlx": "mlx-community/whisper-medium-mlx",      "faster": "large-v3-turbo"},
+    "maxima":      {"mlx": "mlx-community/whisper-large-v3-turbo",  "faster": "large-v3-turbo"},
 }
 
 
