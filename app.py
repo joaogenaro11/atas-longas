@@ -21,11 +21,13 @@ import unicodedata
 
 from flask import Flask, jsonify, request, send_file, abort, Response
 
+import json
 import shutil
+import subprocess
+import sys
 
 import db
-from transcribe import (detect_hardware, choose_model, transcribe_file, fmt_hms,
-                        CancelledError)
+from transcribe import detect_hardware, choose_model, fmt_hms
 
 # Jobs cujo cancelamento foi solicitado.
 _cancel_requested: set[int] = set()
@@ -84,38 +86,43 @@ _worker_started = False
 _worker_lock = threading.Lock()
 
 
+_WORKER_SCRIPT = os.path.join(BASE_DIR, "worker_proc.py")
+
+
 def _process_job(job: dict) -> None:
     job_id = job["id"]
     db.update_job(job_id, status="processando", progress=0.01, message="iniciando…")
 
-    def cb(frac, msg):
-        db.update_job(job_id, progress=float(frac), message=str(msg)[:300])
+    env = os.environ.copy()
+    env["DB_PATH"] = db.DB_PATH
+    env["PYTHONUNBUFFERED"] = "1"
+    args = [sys.executable, _WORKER_SCRIPT, str(job_id), job["stored_path"],
+            OUT_DIR, job["quality"], str(int(job["workers"] or 1)), json.dumps(HW)]
+    p = subprocess.Popen(args, env=env)
 
-    def cancelled():
+    # Se pedirem cancelamento, MATA o processo na hora (parar = parar).
+    while p.poll() is None:
         with _cancel_lock:
-            return job_id in _cancel_requested
+            wants_cancel = job_id in _cancel_requested
+        if wants_cancel:
+            p.terminate()
+            try:
+                p.wait(3)
+            except subprocess.TimeoutExpired:
+                p.kill()
+                p.wait()
+            db.update_job(job_id, status="cancelado", message="cancelado pelo usuário")
+            break
+        time.sleep(0.2)
 
-    try:
-        res = transcribe_file(
-            job["stored_path"], OUT_DIR,
-            quality=job["quality"], hw=HW, progress=cb,
-            workers=int(job["workers"] or 1),
-            should_cancel=cancelled,
-        )
-        db.update_job(
-            job_id, status="concluído", progress=1.0,
-            message=f"{res['segments_count']} blocos",
-            txt_path=res["txt_path"], language=res["language"],
-            duration=res["duration"], model=res["model"],
-        )
-    except CancelledError:
-        db.update_job(job_id, status="cancelado", message="cancelado pelo usuário")
-    except Exception as e:
-        traceback.print_exc()
-        db.update_job(job_id, status="erro", message=str(e)[:300])
-    finally:
-        with _cancel_lock:
-            _cancel_requested.discard(job_id)
+    with _cancel_lock:
+        _cancel_requested.discard(job_id)
+
+    # Filho morreu sem status final (ex: falta de memória) -> marca erro.
+    cur = db.get_job(job_id)
+    if cur and cur["status"] == "processando":
+        db.update_job(job_id, status="erro",
+                      message="o processo encerrou inesperadamente (veja o Terminal)")
 
 
 def _worker_loop() -> None:
