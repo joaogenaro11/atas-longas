@@ -102,6 +102,40 @@ Data da transcrição: 2026-08-18 12:00
 
 Timestamps discretos por bloco (~45 s) para localizar trechos no áudio depois.
 
+## Acessar de qualquer lugar (celular / outro PC)
+
+A transcrição sempre roda **no seu Mac** (é o que dá qualidade máxima de graça).
+O que muda é só como você chega até ela de fora.
+
+### Opção recomendada — Tailscale (privado, grátis, sem limite de tamanho)
+
+Cria uma "rede particular" entre o seu Mac e o seu celular. Ninguém mais acessa.
+
+1. No **Mac**: instale (`brew install --cask tailscale`), abra o app e faça login.
+2. No **celular**: instale o app **Tailscale** e faça login com a **mesma conta**.
+3. No Mac, rode `./start.sh` (deixe rodando).
+4. Descubra o endereço do Mac na rede Tailscale (app do Mac mostra algo como
+   `100.x.y.z` ou um nome `joaos-macbook`). No celular, abra:
+   `http://<endereço-ou-nome>:7860`
+
+Funciona de qualquer rede (4G/5G/Wi-Fi), é privado e aguenta arquivos grandes.
+
+### Opção rápida — link público temporário
+
+```bash
+./share.sh
+```
+
+Gera um link `https://…trycloudflare.com` (via Cloudflare, grátis) e mostra uma
+**senha** de acesso. Abra o link no celular e entre com a senha.
+
+> Cuidado: link público. O `share.sh` já protege com senha. O túnel gratuito
+> limita uploads a **~100 MB por arquivo** — para áudios de várias horas, use o
+> Tailscale acima.
+
+Para proteger o app com senha em qualquer cenário, rode com:
+`APP_PASSWORD="suasenha" ./start.sh`
+
 ## Linha de comando (opcional)
 
 ```bash

@@ -15,10 +15,11 @@ import threading
 import time
 import traceback
 
+import hmac
 import re
 import unicodedata
 
-from flask import Flask, jsonify, request, send_file, abort
+from flask import Flask, jsonify, request, send_file, abort, Response
 
 import db
 from transcribe import detect_hardware, choose_model, transcribe_file, fmt_hms
@@ -36,6 +37,21 @@ HW = detect_hardware()
 
 app = Flask(__name__, static_folder=STATIC_DIR, static_url_path="/static")
 app.config["MAX_CONTENT_LENGTH"] = None  # áudios de várias horas são grandes
+
+# Senha opcional: quando exposto na internet, defina APP_PASSWORD. Sem ela,
+# o acesso é livre (uso local). Usuário é ignorado; só a senha importa.
+APP_PASSWORD = os.environ.get("APP_PASSWORD", "").strip()
+
+
+@app.before_request
+def _require_password():
+    if not APP_PASSWORD:
+        return
+    auth = request.authorization
+    if auth and hmac.compare_digest(auth.password or "", APP_PASSWORD):
+        return
+    return Response("Acesso restrito.", 401,
+                    {"WWW-Authenticate": 'Basic realm="Transcricao"'})
 
 ALLOWED = {".mp3", ".m4a", ".wav", ".mp4", ".aac", ".flac",
            ".ogg", ".opus", ".webm", ".mov"}
