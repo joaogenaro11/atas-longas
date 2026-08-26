@@ -1,7 +1,26 @@
-# 🎙️ Transcrição de Áudio Local
+---
+title: Transcrição de Áudio
+emoji: 🎙️
+colorFrom: indigo
+colorTo: purple
+sdk: docker
+app_port: 7860
+pinned: false
+---
 
-Ferramenta local para transcrever áudios longos (reuniões de 1–3h) em
-português, gerando um **TXT fiel** para depois analisar com IA.
+# 🎙️ Transcrição de Áudio
+
+Ferramenta para transcrever áudios longos (reuniões de 1–3h) em português,
+gerando um **TXT fiel** para depois analisar com IA.
+
+Roda de dois jeitos: **local no seu Mac** (rápido, privado, grátis) e **na nuvem
+grátis (este Space)** para acessar de qualquer lugar, sem o seu computador ligado.
+Veja o passo a passo de deploy em [`GUIA-NUVEM.md`](GUIA-NUVEM.md).
+
+> ☁️ **Nesta versão de nuvem:** o áudio é processado no servidor da Hugging Face
+> (não é mais 100% local) e a CPU grátis é mais lenta — áudios longos demoram.
+> **Proteja com senha:** defina o *secret* `APP_PASSWORD` no Space (Settings →
+> Variables and secrets). Sem ele, qualquer um com o link consegue usar.
 
 **Tudo roda na sua máquina. Nenhum áudio é enviado para APIs externas. Custo zero.**
 
