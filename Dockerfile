@@ -1,28 +1,30 @@
-# Imagem portátil (Linux/CPU) usando faster-whisper.
-# OBS: Docker no macOS roda numa VM Linux e NÃO acessa a GPU/Neural Engine do
-# Apple Silicon — dentro do container só há faster-whisper (CPU). Para máxima
-# velocidade no Apple Silicon, rode nativamente com ./start.sh (backend MLX).
+# Imagem para rodar na NUVEM (Hugging Face Spaces, Docker SDK, porta 7860).
+# Backend: faster-whisper (CPU). Grátis, sempre no ar, acessível de qualquer
+# lugar sem o seu computador. Mais lento que o Mac; áudio passa pelo servidor
+# da Hugging Face (deixa de ser 100% local — proteja com senha, veja README).
 FROM python:3.11-slim
 
 # FFmpeg é obrigatório para ler/normalizar os áudios.
 RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
-# uv para gerenciar os pacotes.
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
-
 WORKDIR /app
 
-# Instala as dependências primeiro (melhor cache de camadas).
-COPY pyproject.toml ./
-RUN uv pip install --system -r pyproject.toml
+# Dependências (pip simples — robusto no build do Spaces).
+COPY requirements.txt ./
+RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
+# No Spaces o disco persistente não existe no plano grátis: tudo em /tmp
+# (gravável). Uploads/transcrições/DB são efêmeros — o fluxo é: enviar,
+# transcrever, baixar o TXT na hora.
 ENV PORT=7860 \
-    DB_PATH=/app/data/jobs.db \
-    UPLOAD_DIR=/app/data/uploads \
-    TRANSCRICOES_DIR=/app/transcricoes
+    DB_PATH=/tmp/data/jobs.db \
+    UPLOAD_DIR=/tmp/data/uploads \
+    TRANSCRICOES_DIR=/tmp/transcricoes \
+    HF_HOME=/tmp/hf \
+    PYTHONUNBUFFERED=1
 
 EXPOSE 7860
 CMD ["python", "app.py"]
