@@ -120,18 +120,27 @@ Cria uma "rede particular" entre o seu Mac e o seu celular. Ninguém mais acessa
 
 Funciona de qualquer rede (4G/5G/Wi-Fi), é privado e aguenta arquivos grandes.
 
-### Opção rápida — link público temporário
+### Opção rápida (turnkey) — link público + QR code
+
+Um comando só. Deixe o Mac ligado com ele rodando:
 
 ```bash
 ./share.sh
 ```
 
-Gera um link `https://…trycloudflare.com` (via Cloudflare, grátis) e mostra uma
-**senha** de acesso. Abra o link no celular e entre com a senha.
+Ele sobe a aplicação e um túnel da Cloudflare (grátis, sem conta) e mostra:
 
-> Cuidado: link público. O `share.sh` já protege com senha. O túnel gratuito
-> limita uploads a **~100 MB por arquivo** — para áudios de várias horas, use o
-> Tailscale acima.
+- o **LINK** `https://…trycloudflare.com` (abra em qualquer lugar),
+- um **QR code** — aponte a câmera do celular e abra,
+- uma **SENHA** de acesso (usuário pode ser qualquer coisa).
+
+Instala o `cloudflared` sozinho na 1ª vez (via Homebrew). Deixe a janela aberta
+enquanto usar; `Ctrl+C` encerra tudo.
+
+> O túnel gratuito limita uploads a **~100 MB por arquivo**. Para áudios de
+> várias horas (arquivos grandes), use o **Tailscale** acima (privado, sem limite).
+
+Para fixar sua própria senha: `APP_PASSWORD="minhasenha" ./share.sh`
 
 Para proteger o app com senha em qualquer cenário, rode com:
 `APP_PASSWORD="suasenha" ./start.sh`
